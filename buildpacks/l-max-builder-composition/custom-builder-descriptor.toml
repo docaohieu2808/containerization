@@ -1,0 +1,54 @@
+# MAX: Custom builder — builder.toml
+# A builder packages: a set of buildpacks + a stack (run image + build image)
+# This lets teams publish a single builder image usable across all projects
+#
+# Build the builder image:
+#   pack builder create myorg/custom-builder:latest --config custom-builder-descriptor.toml
+#
+# Use the builder:
+#   pack build myapp --builder myorg/custom-builder:latest
+
+[builder]
+  description = "MyOrg custom builder — Node.js + Python + Go on Ubuntu Jammy"
+
+# ── Stack: defines the build image and run image ──────────────────────────────
+# Build image: has compilers, build tools
+# Run image:   minimal, only what's needed at runtime
+[stack]
+  id          = "io.buildpacks.stacks.jammy"
+  build-image = "paketobuildpacks/build-jammy-base"
+  run-image   = "paketobuildpacks/run-jammy-base"
+
+# ── Buildpacks included in this builder ───────────────────────────────────────
+# Order matters: each group is tried in sequence; first detect=0 group wins
+
+[[buildpacks]]
+  uri     = "docker://gcr.io/paketo-buildpacks/nodejs"
+  version = "latest"
+
+[[buildpacks]]
+  uri     = "docker://gcr.io/paketo-buildpacks/python"
+  version = "latest"
+
+[[buildpacks]]
+  uri     = "docker://gcr.io/paketo-buildpacks/go"
+  version = "latest"
+
+# ── Order groups: detection order ────────────────────────────────────────────
+# Group 1: try Node.js first
+[[order]]
+  [[order.group]]
+    id      = "paketo-buildpacks/nodejs"
+    version = "latest"
+
+# Group 2: try Python
+[[order]]
+  [[order.group]]
+    id      = "paketo-buildpacks/python"
+    version = "latest"
+
+# Group 3: try Go
+[[order]]
+  [[order.group]]
+    id      = "paketo-buildpacks/go"
+    version = "latest"

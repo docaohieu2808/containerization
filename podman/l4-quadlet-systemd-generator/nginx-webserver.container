@@ -1,0 +1,46 @@
+# L4: Quadlet — systemd generator for Podman containers
+# Quadlet reads .container files and generates systemd units automatically
+# No manual `podman generate systemd` needed — systemd understands Podman natively
+#
+# Install: cp nginx-webserver.container ~/.config/containers/systemd/
+# Activate: systemctl --user daemon-reload
+# Start:    systemctl --user start nginx-webserver.service
+# Status:   systemctl --user status nginx-webserver.service
+#
+# Quadlet generates: nginx-webserver.service from this file automatically
+
+[Unit]
+Description=Nginx web server container via Quadlet
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+# Image to use (pulled automatically if not present)
+Image=nginx:alpine
+
+# Port mapping: host:container
+PublishPort=8080:80
+
+# Volume mount (named volume defined in nginx-webserver-data.volume)
+Volume=nginx-webserver-data.volume:/usr/share/nginx/html:ro,Z
+
+# Environment variables
+Environment=NGINX_ENTRYPOINT_QUIET_LOGS=1
+
+# Security: drop all capabilities, add only what's needed
+AddCapability=NET_BIND_SERVICE
+
+# Automatically remove container when stopped (Quadlet recreates on start)
+AutoUpdate=registry
+
+# Labels
+Label=app=nginx-webserver
+Label=managed-by=quadlet
+
+[Service]
+# Restart policy handled by systemd
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

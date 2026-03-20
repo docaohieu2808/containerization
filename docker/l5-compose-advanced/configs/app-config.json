@@ -1,0 +1,8 @@
+{
+  "logLevel": "info",
+  "maxConnections": 100,
+  "featureFlags": {
+    "newDashboard": false,
+    "betaApi": false
+  }
+}
