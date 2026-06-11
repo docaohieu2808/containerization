@@ -27,8 +27,14 @@ FROM scratch AS runtime
 # Copy CA certificates so HTTPS calls work inside scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
+# Copy passwd so USER directive resolves at runtime (scratch has no /etc/passwd)
+COPY --from=builder /etc/passwd /etc/passwd
+
 # Copy the static binary
 COPY --from=builder /build/http-server /http-server
+
+# Run as nobody (uid 65534) — scratch has no useradd, reference by numeric uid
+USER 65534
 
 EXPOSE 8080
 

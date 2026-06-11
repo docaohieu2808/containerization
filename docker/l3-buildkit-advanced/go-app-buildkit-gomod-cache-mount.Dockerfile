@@ -22,6 +22,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# Copy passwd so USER directive resolves; reference nobody by numeric uid in scratch
+COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /build/http-server /http-server
+USER 65534
 EXPOSE 8080
 ENTRYPOINT ["/http-server"]
