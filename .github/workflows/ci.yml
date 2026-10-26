@@ -29,11 +29,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: hadolint (every Dockerfile)
-        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
-        with:
-          dockerfile: "./docker/*"
-          recursive: true
-          failure-threshold: warning
+        run: |
+          status=0
+          while IFS= read -r file; do
+            echo "== $file"
+            docker run --rm -i hadolint/hadolint:v2.15.1 hadolint --failure-threshold warning - < "$file" || status=1
+          done < <(git ls-files '*Dockerfile')
+          exit $status
 
       - name: shellcheck
         run: |
@@ -101,7 +103,7 @@ jobs:
         run: docker buildx build --load -t "ci/${{ matrix.name }}:ci" "${{ matrix.dir }}"
 
       - name: Smoke test (starts, healthy, non-root)
-        run: .github/scripts/smoke.sh "ci/${{ matrix.name }}:ci" http "${{ matrix.port }}" /health
+        run: REQUIRE_HEALTHCHECK=1 .github/scripts/smoke.sh "ci/${{ matrix.name }}:ci" http "${{ matrix.port }}" /health
 
       - name: Secret mount leaves nothing in the image
         if: matrix.secret_test
@@ -139,9 +141,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
+      # No docker-container builder here: the derived build must see the base image in the local image store.
       - name: Build the base images
         run: |
           docker buildx build --load -t myorg/base-node:24 docker/l4-custom-base-images/base-node
@@ -165,7 +165,7 @@ jobs:
         run: docker buildx build --load --build-arg BASE_IMAGE=myorg/base-node:24 -t ci/derived-node:ci docker/l4-custom-base-images/derived-node-app
 
       - name: Smoke test the derived app (read-only root filesystem)
-        run: .github/scripts/smoke.sh ci/derived-node:ci http 3000 /health --read-only
+        run: REQUIRE_HEALTHCHECK=1 .github/scripts/smoke.sh ci/derived-node:ci http 3000 /health --read-only
 
   docker-extension:
     name: docker l-max-docker-extensions
@@ -246,10 +246,10 @@ jobs:
           check linux/arm64 b7
 
       - name: Smoke test linux/amd64
-        run: .github/scripts/smoke.sh localhost:5000/go-multiarch:ci http 8080 /health --platform linux/amd64
+        run: REQUIRE_HEALTHCHECK=1 .github/scripts/smoke.sh localhost:5000/go-multiarch:ci http 8080 /health --platform linux/amd64
 
       - name: Smoke test linux/arm64 (emulated with QEMU)
-        run: .github/scripts/smoke.sh localhost:5000/go-multiarch:ci http 8080 /health --platform linux/arm64
+        run: REQUIRE_HEALTHCHECK=1 .github/scripts/smoke.sh localhost:5000/go-multiarch:ci http 8080 /health --platform linux/arm64
 
   compose:
     name: docker l5 compose
@@ -328,9 +328,9 @@ jobs:
       - name: podman build + rootless run of the Dockerfile examples
         run: |
           podman build --format docker -t localhost/podman-node docker/l1-basic-dockerfile/node-app
-          ENGINE=podman .github/scripts/smoke.sh localhost/podman-node http 3000 /health
+          ENGINE=podman REQUIRE_HEALTHCHECK=1 .github/scripts/smoke.sh localhost/podman-node http 3000 /health
           podman build --format docker -t localhost/podman-go-scratch docker/l2-multi-stage-builds/go-scratch
-          ENGINE=podman .github/scripts/smoke.sh localhost/podman-go-scratch http 8080 /health
+          ENGINE=podman REQUIRE_HEALTHCHECK=1 .github/scripts/smoke.sh localhost/podman-go-scratch http 8080 /health
 
       - name: l-max kube play
         run: bash podman/l-max-podman-kube-play/podman-kube-play-run-and-teardown.sh
@@ -364,22 +364,25 @@ jobs:
         run: bash podman/l4-quadlet-pod-multi-unit/quadlet-pod-install-and-check.sh
 
   podman-6:
-    name: podman 6.1.4 (quadlet validation)
+    name: podman 6.1.4 (quadlet built from the release tag)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate every Quadlet unit with the current Podman release
+      # quay.io/podman/stable has no 6.x image yet, so build the quadlet binary
+      # from the v6.1.4 tag and validate every unit with it.
+      - name: Validate every Quadlet unit with the Podman 6.1.4 generator
         run: |
-          docker run --rm -v "$PWD:/repo:ro" -w /repo quay.io/podman/stable:v6.1.4 bash -euo pipefail -c '
-            podman --version
+          docker run --rm -v "$PWD:/repo:ro" golang:1.27.3-trixie bash -euo pipefail -c '
+            git clone --quiet --depth 1 --branch v6.1.4 https://github.com/containers/podman.git /tmp/podman
+            cd /tmp/podman
+            CGO_ENABLED=0 go build -o /usr/local/bin/quadlet ./cmd/quadlet
             for dir in podman/l3-quadlet-single-container podman/l4-quadlet-pod-multi-unit; do
               echo "== $dir"
-              QUADLET_UNIT_DIRS="/repo/$dir" /usr/libexec/podman/quadlet -dryrun -user
+              QUADLET_UNIT_DIRS="/repo/$dir" quadlet -dryrun -user
             done
-            podman kube play --help >/dev/null
           '
 
   buildah:
@@ -401,13 +404,13 @@ jobs:
       - name: l1 buildah build and from/run/commit
         run: |
           bash buildah/l1-build-oci-images/buildah-build-and-from-run-commit-examples.sh
-          ENGINE=podman .github/scripts/smoke.sh localhost/buildah-l1-dockerfile http 3000 /health
-          ENGINE=podman .github/scripts/smoke.sh localhost/buildah-l1-imperative http 3000 /health
+          ENGINE=podman REQUIRE_HEALTHCHECK=1 .github/scripts/smoke.sh localhost/buildah-l1-dockerfile http 3000 /health
+          ENGINE=podman REQUIRE_HEALTHCHECK=1 .github/scripts/smoke.sh localhost/buildah-l1-imperative http 3000 /health
 
       - name: l2 FROM scratch
         run: |
           bash buildah/l2-scratch-minimal-images/buildah-from-scratch-static-binary.sh
-          ENGINE=podman .github/scripts/smoke.sh localhost/buildah-l2-go-scratch http 8080 /health
+          ENGINE=podman REQUIRE_HEALTHCHECK=1 .github/scripts/smoke.sh localhost/buildah-l2-go-scratch http 8080 /health
 
       - name: l3 multi-arch manifest
         run: bash buildah/l3-multi-arch-builds/buildah-manifest-multi-arch-amd64-arm64.sh
@@ -415,7 +418,7 @@ jobs:
       - name: l-max shell-only build
         run: |
           bash buildah/l-max-buildah-scripts/buildah-pure-shell-no-dockerfile-build.sh
-          ENGINE=podman .github/scripts/smoke.sh localhost/buildah-lmax-python http 5000 /health
+          ENGINE=podman REQUIRE_HEALTHCHECK=1 .github/scripts/smoke.sh localhost/buildah-lmax-python http 5000 /health
 
   buildpacks:
     name: buildpacks (l1, l2, l-max)

@@ -52,7 +52,12 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 echo "container health: ${status:-unknown}"
-[ "${status:-}" = "healthy" ] || { journalctl --user -u "$SERVICE" --no-pager | tail -30; exit 1; }
+if [ "${status:-}" != "healthy" ]; then
+  podman ps -a >&2
+  podman logs hello-web >&2 || true
+  systemctl --user status "$SERVICE" --no-pager >&2 || true
+  exit 1
+fi
 curl -fsS "http://127.0.0.1:${PORT}/" | grep -q "Welcome to nginx"
 echo "GET http://127.0.0.1:${PORT}/ -> nginx welcome page"
 systemctl --user is-active "$SERVICE"

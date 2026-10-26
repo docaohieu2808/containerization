@@ -20,7 +20,8 @@ pack build node-custom-buildpack:latest \
   --builder "$BUILDER" \
   --trust-builder \
   --buildpack "$NODE_ENGINE" \
-  --buildpack "$SCRIPT_DIR/custom-node"
+  --buildpack "$SCRIPT_DIR/custom-node" \
+  --env 'BP_NODE_VERSION=24.*'
 
 echo
 pack inspect node-custom-buildpack:latest

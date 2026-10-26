@@ -62,6 +62,6 @@ echo "--- Result ---"
 buildah images "$TAG"
 podman image inspect "$TAG" \
   --format 'user={{.Config.User}} workdir={{.Config.WorkingDir}} ports={{.Config.ExposedPorts}} cmd={{.Config.Cmd}}'
-podman image inspect "$TAG" | jq -e '(.[0].HealthCheck // .[0].Config.Healthcheck) != null' >/dev/null
+buildah inspect --type image "$TAG" | jq -e '(.Docker.config.Healthcheck // .Docker.container_config.Healthcheck) != null' >/dev/null
 echo "healthcheck present: yes"
 echo "=== Done ==="

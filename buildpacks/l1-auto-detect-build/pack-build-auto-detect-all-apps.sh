@@ -21,7 +21,7 @@ echo "builder: $BUILDER"
 
 echo
 echo "--- Node.js (detected from package.json + package-lock.json) ---"
-pack build node-paketo:latest --path "$APPS/node-app" --builder "$BUILDER" --trust-builder
+pack build node-paketo:latest --path "$APPS/node-app" --builder "$BUILDER" --trust-builder --env 'BP_NODE_VERSION=24.*'
 
 echo
 echo "--- Python (detected from requirements.txt; start command from the Procfile) ---"

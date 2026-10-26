@@ -65,7 +65,12 @@ for _ in $(seq 1 30); do
   fi
   sleep 1
 done
-[ "${reached:-0}" = 1 ] || { echo "container not reachable on port ${WEB_PORT}" >&2; exit 1; }
+if [ "${reached:-0}" != 1 ]; then
+  echo "container not reachable on port ${WEB_PORT}" >&2
+  podman ps -a >&2
+  podman logs l1-rootless-web >&2 || true
+  exit 1
+fi
 echo "GET http://127.0.0.1:${WEB_PORT}/ -> hello-from-pasta"
 echo "(ports below 1024 need: sysctl net.ipv4.ip_unprivileged_port_start=80)"
 

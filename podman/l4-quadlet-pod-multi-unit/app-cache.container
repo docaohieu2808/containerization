@@ -11,7 +11,10 @@ AutoUpdate=registry
 Exec=redis-server --appendonly yes --bind 127.0.0.1 --protected-mode yes
 # The volume unit is created first and mounted at the redis data directory.
 Volume=app-data.volume:/data
+# The image entrypoint starts as root, chowns /data and drops to the redis user,
+# so it needs exactly these three capabilities and nothing else.
 DropCapability=ALL
+AddCapability=CHOWN SETUID SETGID
 NoNewPrivileges=true
 HealthCmd=redis-cli -h 127.0.0.1 ping
 HealthInterval=30s

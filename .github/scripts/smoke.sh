@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test for a built image. Works with Docker (default) or Podman:
 #   ENGINE=podman .github/scripts/smoke.sh ...
+# REQUIRE_HEALTHCHECK=1 makes a missing HEALTHCHECK a failure (use it for images that must define one).
 #
 #   smoke.sh IMAGE http PORT PATH [run args...]
 #       start the image, wait for HTTP 200 on PATH, check it does not run as root,
@@ -74,6 +75,9 @@ case "$mode" in
       done
       [ "$healthy" = 1 ] || { echo "healthcheck never became healthy" >&2; exit 1; }
       echo "healthcheck: healthy"
+    elif [ "${REQUIRE_HEALTHCHECK:-0}" = 1 ]; then
+      echo "image defines no HEALTHCHECK but one is required" >&2
+      exit 1
     else
       echo "image defines no HEALTHCHECK (skipped)"
     fi

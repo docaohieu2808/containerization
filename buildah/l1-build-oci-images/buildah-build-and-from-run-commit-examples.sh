@@ -22,7 +22,8 @@ cleanup() { [ -z "$CONTAINER" ] || buildah rm "$CONTAINER" >/dev/null 2>&1 || tr
 trap cleanup EXIT
 
 has_healthcheck() {
-  podman image inspect "$1" | jq -e '(.[0].HealthCheck // .[0].Config.Healthcheck) != null' >/dev/null
+  buildah inspect --type image "$1" | jq '.Docker | {config: .config.Healthcheck, container_config: .container_config.Healthcheck}'
+  buildah inspect --type image "$1" | jq -e '(.Docker.config.Healthcheck // .Docker.container_config.Healthcheck) != null' >/dev/null
 }
 
 echo "=== L1: Buildah ==="

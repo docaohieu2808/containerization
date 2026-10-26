@@ -52,7 +52,12 @@ for name in app-web app-cache; do
     sleep 2
   done
   echo "$name: ${status:-unknown}"
-  [ "${status:-}" = "healthy" ] || { journalctl --user --no-pager -n 40; exit 1; }
+  if [ "${status:-}" != "healthy" ]; then
+    podman ps -a >&2
+    podman logs "$name" >&2 || true
+    systemctl --user status "${name}.service" --no-pager >&2 || true
+    exit 1
+  fi
 done
 
 echo "--- 4. Port exposure ---"
