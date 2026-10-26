@@ -6,7 +6,7 @@
 # Build: docker build -t myorg/base-python:3.14 .   (context = this directory)
 # Use:   FROM myorg/base-python:3.14
 # Run it read-only for extra hardening: docker run --read-only --tmpfs /tmp ...
-FROM python:3.14.9-slim-trixie
+FROM python:3.15.0-slim-trixie
 
 ENV TZ=UTC \
     PYTHONDONTWRITEBYTECODE=1 \
