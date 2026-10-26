@@ -6,7 +6,7 @@
 #
 # Build: docker build -t python-buildkit .   (context = this directory)
 # Run:   docker run --rm -p 5000:5000 python-buildkit
-FROM python:3.14.9-slim-trixie
+FROM python:3.15.0-slim-trixie
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
