@@ -15,7 +15,7 @@
 # A related mount, not enabled here because it needs an SSH agent: forward it for
 # private git dependencies with `RUN --mount=type=ssh git clone ...` and
 # `docker build --ssh default .`
-FROM node:24.22.1-alpine3.24
+FROM node:26.12.1-alpine3.24
 
 ENV NODE_ENV=production
 WORKDIR /app
