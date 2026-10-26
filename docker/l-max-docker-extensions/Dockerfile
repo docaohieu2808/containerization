@@ -18,5 +18,5 @@ LABEL org.opencontainers.image.title="My Extension" \
       com.docker.extension.detailed-description="<p>Shows a static page inside Docker Desktop.</p>" \
       com.docker.extension.changelog="<ul><li>Initial version.</li></ul>"
 
-COPY metadata.json .
-COPY ui ./ui
+COPY metadata.json /metadata.json
+COPY ui /ui

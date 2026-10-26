@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# L3: Buildah multi-arch: one command builds linux/amd64 and linux/arm64 images
-# and groups them in a manifest list (OCI image index) so `pull` picks the
-# right one per machine.
+# L3: Buildah multi-arch: build linux/amd64 and linux/arm64 images, then group
+# them in a manifest list (OCI image index) so `pull` picks the right one per machine.
 #
 # The Dockerfile cross-compiles with TARGETOS/TARGETARCH on the build host's own
 # architecture, so no QEMU is needed to produce the arm64 image. QEMU
@@ -16,33 +15,41 @@ MANIFEST=localhost/buildah-l3-multiarch:latest
 
 echo "=== L3: Buildah multi-arch manifest ==="
 
-echo "--- 1. Build both platforms into one manifest list ---"
-buildah manifest rm "$MANIFEST" >/dev/null 2>&1 || true
-buildah build \
-  --format docker \
-  --platform linux/amd64,linux/arm64 \
-  --manifest "$MANIFEST" \
-  --file "$APP_DIR/Dockerfile" \
-  "$APP_DIR"
-
-echo "--- 2. Inspect the manifest list ---"
-buildah manifest inspect "$MANIFEST"
-archs=$(buildah manifest inspect "$MANIFEST" | jq -r '[.manifests[].platform.architecture] | sort | join(",")')
-echo "architectures in the list: $archs"
-[ "$archs" = "amd64,arm64" ] || { echo "expected amd64,arm64" >&2; exit 1; }
-
-echo "--- 3. Each image holds a binary for its own architecture ---"
 # ELF header byte 18 is e_machine: 0x3e = x86-64, 0xb7 = AArch64.
-check_arch() {
+check_binary_arch() {
   local arch=$1 want=$2 c machine
-  c=$(buildah from --arch "$arch" --pull=never "containers-storage:$MANIFEST")
+  c=$(buildah from --arch "$arch" --pull=never "localhost/buildah-l3-multiarch:$arch")
   machine=$(buildah unshare sh -c "mnt=\$(buildah mount '$c') && od -An -tx1 -j18 -N1 \"\$mnt/server\"" | tr -d ' ')
   buildah rm "$c" >/dev/null
   echo "$arch: /server e_machine=0x$machine"
   [ "$machine" = "$want" ] || { echo "wrong binary architecture for $arch" >&2; exit 1; }
 }
-check_arch amd64 3e
-check_arch arm64 b7
+
+echo "--- 1. One build per platform ---"
+for arch in amd64 arm64; do
+  buildah build \
+    --format docker \
+    --platform "linux/$arch" \
+    --tag "localhost/buildah-l3-multiarch:$arch" \
+    --file "$APP_DIR/Dockerfile" \
+    "$APP_DIR"
+done
+
+echo "--- 2. Each image holds a binary for its own architecture ---"
+check_binary_arch amd64 3e
+check_binary_arch arm64 b7
+
+echo "--- 3. Group them in a manifest list ---"
+buildah manifest rm "$MANIFEST" >/dev/null 2>&1 || true
+buildah manifest create "$MANIFEST"
+buildah manifest add "$MANIFEST" localhost/buildah-l3-multiarch:amd64
+buildah manifest add "$MANIFEST" localhost/buildah-l3-multiarch:arm64
+
+echo "--- 4. Inspect the manifest list ---"
+buildah manifest inspect "$MANIFEST"
+archs=$(buildah manifest inspect "$MANIFEST" | jq -r '[.manifests[].platform.architecture] | sort | join(",")')
+echo "architectures in the list: $archs"
+[ "$archs" = "amd64,arm64" ] || { echo "expected amd64,arm64" >&2; exit 1; }
 
 echo
 echo "Push the whole list to a registry:"

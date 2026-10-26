@@ -126,7 +126,7 @@ Go manifests.
 | Redis | 8.8.3 | `podman/l4` |
 | pack / lifecycle | 0.40.10 / 0.21.26 | CI, `builder.toml` |
 | Paketo ubuntu-noble builder / build+run images | 0.0.207 / 0.0.152 | `buildpacks/**` |
-| Paketo nodejs / python / go / node-engine buildpacks | 10.14.1 / 2.66.0 / 4.23.1 / 8.11.0 | `buildpacks/**` |
+| Paketo nodejs / python / go / node-engine buildpacks | 10.14.1 / 2.66.0 / 4.23.1 / 8.11.0 (pulled from Docker Hub `paketobuildpacks/*`; `gcr.io/paketo-buildpacks` now requires authentication) | `buildpacks/**` |
 | Podman (Quadlet validation) | 6.1.4 | CI `podman-6` job |
 
 Dependabot cannot see the image names inside shell scripts, Quadlet units, the

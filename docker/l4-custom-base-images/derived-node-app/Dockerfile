@@ -13,10 +13,10 @@ FROM ${BASE_IMAGE}
 
 ENV NODE_ENV=production
 
-COPY --chown=app:app package.json package-lock.json ./
+COPY --chown=app:app package.json package-lock.json /app/
 RUN npm ci --omit=dev
 
-COPY --chown=app:app server.js ./
+COPY --chown=app:app server.js /app/
 
 EXPOSE 3000
 

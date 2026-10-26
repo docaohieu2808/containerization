@@ -12,7 +12,7 @@ APP="$SCRIPT_DIR/../../docker/l1-basic-dockerfile/node-app"
 
 BUILDER=docker.io/paketobuildpacks/ubuntu-noble-builder:0.0.207
 # https://github.com/paketo-buildpacks/node-engine/releases
-NODE_ENGINE=docker://gcr.io/paketo-buildpacks/node-engine:8.11.0
+NODE_ENGINE=docker://docker.io/paketobuildpacks/node-engine:8.11.0
 
 echo "=== L2: pack build with a custom buildpack ==="
 pack build node-custom-buildpack:latest \

@@ -11,13 +11,13 @@ description = "MyOrg builder: Node.js, Python and Go on Ubuntu 24.04"
 # Buildpacks included in the builder. Composite Paketo buildpacks pull in the
 # buildpacks they depend on. Releases: https://github.com/paketo-buildpacks
 [[buildpacks]]
-uri = "docker://gcr.io/paketo-buildpacks/nodejs:10.14.1"
+uri = "docker://docker.io/paketobuildpacks/nodejs:10.14.1"
 
 [[buildpacks]]
-uri = "docker://gcr.io/paketo-buildpacks/python:2.66.0"
+uri = "docker://docker.io/paketobuildpacks/python:2.66.0"
 
 [[buildpacks]]
-uri = "docker://gcr.io/paketo-buildpacks/go:4.23.1"
+uri = "docker://docker.io/paketobuildpacks/go:4.23.1"
 
 # Detection order: the first group whose buildpacks all detect wins. (A version
 # is only needed if the builder holds several versions of the same buildpack;

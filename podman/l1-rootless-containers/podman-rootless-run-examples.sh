@@ -56,7 +56,7 @@ case "$graphroot" in "$HOME"/*) ;; *) echo "graph root is not under \$HOME" >&2;
 
 echo
 echo "--- 4. Rootless networking: pasta + a published port ---"
-podman run -d --rm --name l1-rootless-web --network=pasta -p "${WEB_PORT}:80" "$ALPINE" \
+podman run -d --name l1-rootless-web --network=pasta -p "${WEB_PORT}:80" "$ALPINE" \
   sh -c 'mkdir -p /www && echo hello-from-pasta > /www/index.html && exec httpd -f -p 80 -h /www'
 for _ in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:${WEB_PORT}/" 2>/dev/null | grep -q hello-from-pasta; then
