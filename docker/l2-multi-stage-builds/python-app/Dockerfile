@@ -6,7 +6,7 @@
 #
 # Build: docker build -t python-multistage . (context = this directory)
 # Run:   docker run --rm -p 5000:5000 python-multistage
-FROM python:3.14.9-slim-trixie AS builder
+FROM python:3.15.0-slim-trixie AS builder
 WORKDIR /build
 
 RUN python -m venv /opt/venv
@@ -15,7 +15,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-FROM python:3.14.9-slim-trixie AS runtime
+FROM python:3.15.0-slim-trixie AS runtime
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
