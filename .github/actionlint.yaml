@@ -1,0 +1,5 @@
+# ubuntu-26.04 is a GitHub-hosted runner label (Podman 5.7 and Buildah 1.42 preinstalled)
+# that the pinned actionlint release does not know yet.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

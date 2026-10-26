@@ -272,7 +272,10 @@ jobs:
           curl -fsS http://127.0.0.1:3000/config | jq -e '.appName == "compose-example"'
           curl -fsS http://127.0.0.1:3000/secret-check | jq -e '.mounted and .nonEmpty'
           # the secret value itself is never exposed by the app
-          ! curl -fsS http://127.0.0.1:3000/secret-check | grep -q changeme
+          if curl -fsS http://127.0.0.1:3000/secret-check | grep -q changeme; then
+            echo "secret value leaked through the app" >&2
+            exit 1
+          fi
           docker compose --profile dev down -v
 
       - name: prod profile - two replicas on a port range, read-only root filesystem
@@ -282,7 +285,12 @@ jobs:
           h1=$(curl -fsS http://127.0.0.1:3001/ | jq -r .hostname)
           echo "replica hostnames: $h0 $h1"
           [ "$h0" != "$h1" ]
-          ! docker compose --profile prod exec -T --index 1 app-prod sh -c 'touch /app/should-fail'
+          if out=$(docker compose --profile prod exec -T --index 1 app-prod sh -c 'touch /app/should-fail 2>&1'); then
+            echo "wrote to a read-only root filesystem" >&2
+            exit 1
+          fi
+          echo "$out"
+          grep -q "Read-only file system" <<<"$out"
           docker compose --profile prod down -v
 
       - name: test profile - the test container runs and passes (including the database check)
