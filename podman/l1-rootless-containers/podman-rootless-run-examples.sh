@@ -15,6 +15,7 @@
 set -euo pipefail
 
 ALPINE=docker.io/library/alpine:3.24.3
+NGINX=docker.io/library/nginx:1.30.6-alpine3.24-slim
 WEB_PORT=${WEB_PORT:-18081}
 WORKDIR=$(mktemp -d)
 cleanup() {
@@ -56,8 +57,8 @@ case "$graphroot" in "$HOME"/*) ;; *) echo "graph root is not under \$HOME" >&2;
 
 echo
 echo "--- 4. Rootless networking: pasta + a published port ---"
-podman run -d --name l1-rootless-web --network=pasta -p "${WEB_PORT}:80" "$ALPINE" \
-  sh -c 'mkdir -p /www && echo hello-from-pasta > /www/index.html && exec httpd -f -p 80 -h /www'
+podman run -d --name l1-rootless-web --network=pasta -p "${WEB_PORT}:80" --entrypoint sh "$NGINX" \
+  -c 'echo hello-from-pasta > /usr/share/nginx/html/index.html && exec nginx -g "daemon off;"'
 for _ in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:${WEB_PORT}/" 2>/dev/null | grep -q hello-from-pasta; then
     reached=1
