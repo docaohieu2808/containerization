@@ -6,7 +6,7 @@
 #
 # Build: docker build -t node-multistage .   (context = this directory)
 # Run:   docker run --rm -p 3000:3000 node-multistage
-FROM node:24.22.1-alpine3.24 AS builder
+FROM node:26.12.1-alpine3.24 AS builder
 WORKDIR /build
 
 COPY package.json package-lock.json ./
@@ -17,7 +17,7 @@ COPY server.js ./
 # the runtime stage only receives what it needs to run.
 RUN npm prune --omit=dev
 
-FROM node:24.22.1-alpine3.24 AS runtime
+FROM node:26.12.1-alpine3.24 AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
