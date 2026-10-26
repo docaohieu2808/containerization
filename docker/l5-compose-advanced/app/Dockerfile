@@ -2,7 +2,7 @@
 # App image for the compose example. Two targets:
 #   test     runs `npm test` (used by the compose `test` profile)
 #   runtime  the production image (default, last stage)
-FROM node:24.22.1-alpine3.24 AS deps
+FROM node:26.12.1-alpine3.24 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
@@ -15,7 +15,7 @@ CMD ["npm", "test"]
 FROM deps AS prod-deps
 RUN npm prune --omit=dev
 
-FROM node:24.22.1-alpine3.24 AS runtime
+FROM node:26.12.1-alpine3.24 AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
