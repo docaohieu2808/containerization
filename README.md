@@ -83,9 +83,10 @@ bash buildpacks/l1-auto-detect-build/pack-build-auto-detect-all-apps.sh   # need
   iptables). Rootless networking is pasta; there is nothing to configure.
 * Always use fully qualified image names (`docker.io/library/nginx:...`); Quadlet
   `AutoUpdate=registry` requires them.
-* The Podman 6 container job validates the Quadlet units with the 6.1.4 release;
-  the rootless runtime jobs use the Podman that ships on the runner (5.7, same
-  Quadlet syntax and the same pasta networking).
+* `quay.io/podman/stable` has no 6.x image yet, so the `podman-6` CI job builds the
+  `quadlet` generator from the `v6.1.4` tag and validates every unit with it. The
+  rootless runtime jobs use the Podman preinstalled on the `ubuntu-26.04` runner
+  (5.7, same Quadlet syntax and the same pasta networking).
 
 ## Buildah note: OCI format drops `HEALTHCHECK`
 
@@ -110,7 +111,7 @@ Go manifests.
 | compose | `up --wait` for dev and prod (2 replicas on 3000-3001, read-only fs), `/config` and `/secret-check` assertions, test profile run to completion |
 | podman rootless | l1 and l2 scripts, `podman build` + rootless run of two Dockerfiles, `kube play` / `kube down` |
 | podman quadlet | l3 and l4 installed with `podman quadlet install` and started with `systemctl --user`, containers healthy, port exposure checked |
-| podman 6.1.4 | all Quadlet units pass `quadlet -dryrun` with the current release |
+| podman 6.1.4 | `quadlet` built from the v6.1.4 tag; all units pass `-dryrun` |
 | buildah | l1-l3 and l-max executed; images run under Podman; the manifest list is checked for both architectures and the correct binary in each |
 | buildpacks | `pack build` with the pinned Paketo builder, the custom buildpack, and a custom builder built from `builder.toml`; each resulting image is run and probed |
 
