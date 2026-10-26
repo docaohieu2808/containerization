@@ -1,78 +1,58 @@
 #!/usr/bin/env bash
-# L2: Buildah — build minimal OCI image FROM scratch
-# Demonstrates: compile static Go binary, put ONLY the binary in a scratch image
-# Result: ~5MB image with zero OS, no shell, no libc, no attack surface
+# L2: Buildah builds a minimal image FROM scratch.
+# Compiles the Go service in a toolchain container, then copies ONLY the static
+# binary into an empty image: no shell, no libc, no package manager.
 #
 # Run: bash buildah-from-scratch-static-binary.sh
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-SCRATCH_TAG="go-scratch-buildah:latest"
+APP_DIR="$SCRIPT_DIR/../../docker/l2-multi-stage-builds/go-scratch"
+GO_IMAGE=docker.io/library/golang:1.27.3-alpine3.24
+TAG=localhost/buildah-l2-go-scratch:latest
+
 BUILD_CONTAINER=""
 SCRATCH_CONTAINER=""
-
 cleanup() {
-  [ -n "$BUILD_CONTAINER" ]   && buildah rm "$BUILD_CONTAINER"   2>/dev/null || true
-  [ -n "$SCRATCH_CONTAINER" ] && buildah rm "$SCRATCH_CONTAINER" 2>/dev/null || true
+  for c in "$BUILD_CONTAINER" "$SCRATCH_CONTAINER"; do
+    [ -z "$c" ] || buildah rm "$c" >/dev/null 2>&1 || true
+  done
 }
 trap cleanup EXIT
 
-echo "=== L2: Buildah FROM scratch — minimal static binary image ==="
+echo "=== L2: Buildah FROM scratch ==="
 
-# ── Step 1: Compile static binary in a Go builder container ──────────────────
-echo ""
-echo "--- Step 1: Compile static Go binary ---"
-BUILD_CONTAINER=$(buildah from golang:1.22-alpine)
-
-buildah run "$BUILD_CONTAINER" -- mkdir -p /build
-buildah copy "$BUILD_CONTAINER" \
-  "$REPO_ROOT/test-apps/go-app/go.mod" /build/go.mod
-buildah copy "$BUILD_CONTAINER" \
-  "$REPO_ROOT/test-apps/go-app/http-hello-world-server.go" /build/
-
+echo "--- 1. Compile a static binary in a Go container ---"
+BUILD_CONTAINER=$(buildah from "$GO_IMAGE")
+buildah config --workingdir /src "$BUILD_CONTAINER"
+buildah copy "$BUILD_CONTAINER" "$APP_DIR/go.mod" "$APP_DIR/main.go" /src/
+# No GOARCH: the container's own architecture is the target, so this works on
+# amd64 and arm64 hosts alike (l3 shows explicit cross-compilation).
 buildah run "$BUILD_CONTAINER" -- sh -c \
-  "cd /build && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-w -s' -o http-server http-hello-world-server.go"
+  'CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server .'
 
-echo "Binary compiled inside build container."
-
-# ── Step 2: Create scratch image and copy only the binary ────────────────────
-echo ""
-echo "--- Step 2: Create FROM scratch image ---"
-# 'scratch' = completely empty image; nothing exists except what we copy in
+echo "--- 2. Empty image + the binary ---"
 SCRATCH_CONTAINER=$(buildah from scratch)
+buildah copy --from "$BUILD_CONTAINER" "$SCRATCH_CONTAINER" /out/server /server
 
-# Copy CA certs so HTTPS works (extracted from builder)
-buildah run "$BUILD_CONTAINER" -- cat /etc/ssl/certs/ca-certificates.crt > /tmp/ca-certificates.crt
-buildah copy "$SCRATCH_CONTAINER" /tmp/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-
-# Copy the static binary — this is the ONLY thing in the image besides certs
-buildah run "$BUILD_CONTAINER" -- cat /build/http-server > /tmp/http-server
-chmod +x /tmp/http-server
-buildah copy "$SCRATCH_CONTAINER" /tmp/http-server /http-server
-
-# ── Step 3: Set image config ──────────────────────────────────────────────────
-echo ""
-echo "--- Step 3: Configure image metadata ---"
+echo "--- 3. Configure ---"
+# Exec-form healthcheck: scratch has no shell, so the binary probes itself.
 buildah config \
+  --user 65532:65532 \
   --port 8080 \
-  --entrypoint '["/http-server"]' \
-  --label org.opencontainers.image.title="go-scratch-buildah" \
-  --label org.opencontainers.image.description="Minimal Go binary in scratch image" \
+  --entrypoint '["/server"]' \
+  --healthcheck "CMD /server -healthcheck" \
+  --healthcheck-interval 30s \
+  --healthcheck-timeout 3s \
+  --healthcheck-start-period 5s \
+  --healthcheck-retries 3 \
+  --label org.opencontainers.image.title=buildah-l2-go-scratch \
   "$SCRATCH_CONTAINER"
 
-# ── Step 4: Commit to image ───────────────────────────────────────────────────
-echo ""
-echo "--- Step 4: Commit scratch image ---"
-buildah commit "$SCRATCH_CONTAINER" "$SCRATCH_TAG"
+echo "--- 4. Commit (docker format keeps the HEALTHCHECK) ---"
+buildah commit --format docker "$SCRATCH_CONTAINER" "$TAG"
+buildah images "$TAG"
 
-echo ""
-echo "--- Image size comparison ---"
-buildah images | grep -E "golang|go-scratch-buildah" || true
-
-echo ""
-echo "Scratch image '$SCRATCH_TAG' contains ONLY the static binary + CA certs."
-echo "No shell, no OS packages, no libc — minimal attack surface."
-echo ""
+size=$(podman image inspect "$TAG" --format '{{.Size}}')
+echo "image size: ${size} bytes (contains one file: /server)"
 echo "=== Done ==="

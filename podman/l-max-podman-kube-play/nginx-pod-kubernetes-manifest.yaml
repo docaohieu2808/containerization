@@ -1,12 +1,9 @@
-# MAX: podman kube play — run Kubernetes YAML natively with Podman (no K8s cluster needed)
-# Demonstrates: K8s Pod spec run locally via Podman
+# L-max: `podman kube play` runs Kubernetes YAML with Podman, no cluster needed.
+# Podman supports Pod, Deployment, PersistentVolumeClaim, ConfigMap, Secret and a
+# few more kinds. Handy for trying a manifest locally before it goes to a cluster.
 #
-# Run:     podman kube play nginx-pod-kubernetes-manifest.yaml
+# Run:      podman kube play nginx-pod-kubernetes-manifest.yaml
 # Teardown: podman kube down nginx-pod-kubernetes-manifest.yaml
-#
-# podman kube play supports: Pod, Deployment, PersistentVolumeClaim, ConfigMap, Secret
-# Useful for: local dev without K8s, testing manifests before cluster deploy
-
 apiVersion: v1
 kind: Pod
 metadata:
@@ -16,10 +13,10 @@ metadata:
 spec:
   containers:
     - name: nginx
-      image: nginx:alpine
+      image: docker.io/library/nginx:1.30.6-alpine3.24-slim
       ports:
         - containerPort: 80
-          hostPort: 8080
+          hostPort: 18085
       resources:
         limits:
           memory: "128Mi"
@@ -41,16 +38,18 @@ spec:
           mountPath: /usr/share/nginx/html
           readOnly: true
 
-    # Sidecar: shares network namespace with nginx (same pod)
+    # Sidecar: shares the pod's network namespace, so nginx is on its localhost.
     - name: log-watcher
-      image: alpine:3.19
-      command: ["sh", "-c", "while true; do wget -qO- http://localhost:80 > /dev/null && echo 'nginx ok'; sleep 10; done"]
+      image: docker.io/library/alpine:3.24.3
+      command:
+        - sh
+        - -c
+        - while true; do wget -q -O /dev/null http://127.0.0.1:80/ && echo "nginx ok"; sleep 5; done
 
   volumes:
     - name: html-content
       configMap:
         name: nginx-html-content
-
 ---
 apiVersion: v1
 kind: ConfigMap

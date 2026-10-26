@@ -1,0 +1,9 @@
+{
+  "ui": {
+    "dashboard-tab": {
+      "title": "My Extension",
+      "root": "/ui",
+      "src": "index.html"
+    }
+  }
+}

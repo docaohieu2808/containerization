@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# L2: bin/build runs after detect passed. It creates layers under CNB_LAYERS_DIR
+# and tells the launcher what to run.
+#
+# A layer is a directory <layers>/<name> plus an optional <layers>/<name>.toml:
+#   types.launch  include the layer in the final image
+#   types.cache   keep the layer for the next build
+#   metadata      free-form data kept with the cached layer (used below to skip reinstalls)
+set -euo pipefail
+
+layers_dir="${CNB_LAYERS_DIR:?}"
+layer="$layers_dir/node-modules"
+layer_toml="$layers_dir/node-modules.toml"
+
+lock_sha=$(sha256sum package-lock.json | cut -d' ' -f1)
+echo "--- myorg/custom-node: build ---"
+
+# Reuse the cached layer when the lockfile did not change.
+if [[ -d "$layer/node_modules" && -f "$layer_toml" ]] && grep -q "lock_sha = \"$lock_sha\"" "$layer_toml"; then
+  echo "lockfile unchanged: reusing cached dependency layer"
+else
+  echo "installing production dependencies into the layer"
+  rm -rf "$layer"
+  mkdir -p "$layer"
+  cp package.json package-lock.json "$layer/"
+  (cd "$layer" && npm ci --omit=dev)
+fi
+
+# Make the layer's modules resolvable by the app: NODE_PATH is added to the
+# launch environment (env.launch/<NAME>.<action>; "default" applies if unset).
+mkdir -p "$layer/env.launch"
+printf '%s' "$layer/node_modules" > "$layer/env.launch/NODE_PATH.default"
+
+cat > "$layer_toml" <<TOML
+[types]
+launch = true
+cache = true
+
+[metadata]
+lock_sha = "$lock_sha"
+TOML
+
+# The default process replaces CMD/ENTRYPOINT. launch.toml sits in the layers
+# directory itself, not inside a layer.
+cat > "$layers_dir/launch.toml" <<'TOML'
+[[processes]]
+type = "web"
+command = ["node"]
+args = ["server.js"]
+default = true
+TOML

@@ -1,0 +1,43 @@
+# L3: Quadlet. systemd runs a Podman container from a declarative unit file.
+# Quadlet is the supported way to run containers under systemd. It replaces
+# `podman generate systemd`, which is deprecated and receives only urgent fixes.
+#
+# A systemd generator turns this file into hello-web.service at daemon-reload.
+# Rootless location: ~/.config/containers/systemd/   (rootful: /etc/containers/systemd/)
+# Reference: man podman-systemd.unit
+
+[Unit]
+Description=Hello web (nginx) via Quadlet
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=hello-web
+# Fully-qualified image reference: required for AutoUpdate=registry.
+Image=docker.io/nginxinc/nginx-unprivileged:1.30.6-alpine3.24
+# `podman auto-update` (podman-auto-update.timer) re-pulls and restarts on a new digest.
+AutoUpdate=registry
+PublishPort=127.0.0.1:18083:8080
+
+# Hardening: unprivileged nginx image, read-only root filesystem, no capabilities,
+# no privilege escalation. Only /tmp is writable (tmpfs).
+ReadOnly=true
+Tmpfs=/tmp
+DropCapability=ALL
+NoNewPrivileges=true
+
+HealthCmd=wget -q -O /dev/null http://127.0.0.1:8080/
+HealthInterval=30s
+HealthStartPeriod=5s
+
+Label=app=hello-web
+
+[Service]
+# Restart policy belongs to systemd, not to the container.
+Restart=always
+RestartSec=5
+# The first start may have to pull the image.
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

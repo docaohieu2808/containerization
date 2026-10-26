@@ -1,75 +1,63 @@
 #!/usr/bin/env bash
-# L2: Podman Pods — multiple containers sharing network and PID namespace
-# Demonstrates:
-#   - podman pod create: create a pod (shared network namespace)
-#   - Add containers to pod — they share localhost
-#   - podman pod start/stop/rm
-#   - Inspect pod and containers
+# L2: Podman pods. Containers in a pod share one network namespace (one IP,
+# one localhost) like the containers of a Kubernetes Pod.
+# Demonstrates (and asserts):
+#   - `podman pod create --publish`: the pod, not the container, owns the host port
+#   - a sidecar reaching the web container over the pod's shared localhost
+#   - inspecting and removing the pod
 #
-# Pods map to Kubernetes Pod concept: containers in a pod share:
-#   - Network namespace (same IP, same ports — no port conflicts allowed)
-#   - Optional: PID namespace (--share pid)
-#   - Optional: IPC namespace
-#
-# Run: bash podman-pod-create-and-run-example.sh
-
+# Run: bash podman-pod-create-and-run-example.sh   (CLEANUP=false keeps the pod)
 set -euo pipefail
 
-POD_NAME="demo-pod"
+POD=demo-pod
+PORT=${POD_PORT:-18082}
 CLEANUP=${CLEANUP:-true}
+NGINX=docker.io/library/nginx:1.30.6-alpine3.24-slim
+ALPINE=docker.io/library/alpine:3.24.3
 
-echo "=== L2: Podman Pod Demo ==="
+cleanup() {
+  if [ "$CLEANUP" = "true" ]; then
+    podman pod rm -f "$POD" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+podman pod rm -f "$POD" >/dev/null 2>&1 || true
 
-# ── 1. Create the pod ────────────────────────────────────────────────────────
-echo ""
-echo "--- 1. Creating pod '$POD_NAME' ---"
-# --share net,uts: share network + hostname namespace (default)
-# --publish 8080:80: map host 8080 → pod's port 80 (configured on pod, not container)
-podman pod create \
-  --name "$POD_NAME" \
-  --share net,uts \
-  --publish 8080:80
+echo "=== L2: Podman pod ==="
 
-# ── 2. Add nginx container to pod ────────────────────────────────────────────
-echo ""
-echo "--- 2. Adding nginx container to pod ---"
-# Pod containers don't need -p; the pod owns the port mapping
-podman run -d \
-  --pod "$POD_NAME" \
-  --name "${POD_NAME}-nginx" \
-  nginx:alpine
+echo "--- 1. Create the pod (owns the published port) ---"
+podman pod create --name "$POD" --publish "${PORT}:80"
 
-# ── 3. Add sidecar container (shares localhost with nginx) ───────────────────
-echo ""
-echo "--- 3. Adding sidecar (log tailer) container to pod ---"
-# This container can reach nginx on localhost:80 (shared network namespace)
-podman run -d \
-  --pod "$POD_NAME" \
-  --name "${POD_NAME}-sidecar" \
-  alpine:3.19 \
-  sh -c "while true; do wget -qO- http://localhost:80 2>&1 | head -1; sleep 5; done"
+echo "--- 2. nginx in the pod ---"
+podman run -d --pod "$POD" --name "${POD}-nginx" "$NGINX"
 
-# ── 4. Inspect the pod ──────────────────────────────────────────────────────
-echo ""
-echo "--- 4. Pod status ---"
+echo "--- 3. Sidecar in the same pod: reaches nginx on localhost ---"
+podman run -d --pod "$POD" --name "${POD}-sidecar" "$ALPINE" \
+  sh -c 'while true; do wget -q -O /dev/null http://127.0.0.1:80/ && echo "sidecar: nginx reachable on localhost"; sleep 2; done'
+
+echo "--- 4. Inspect ---"
 podman pod ps
-echo ""
-podman ps --pod --filter pod="$POD_NAME"
+podman ps --pod --filter "pod=${POD}"
 
-# ── 5. Show shared network namespace ────────────────────────────────────────
-echo ""
-echo "--- 5. Both containers share the same network namespace (same IP) ---"
-podman exec "${POD_NAME}-nginx"   ip addr show eth0 2>/dev/null || true
-podman exec "${POD_NAME}-sidecar" ip addr show eth0 2>/dev/null || true
+echo "--- 5. Verify ---"
+for _ in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:${PORT}/" 2>/dev/null | grep -q "Welcome to nginx"; then
+    reached=1
+    break
+  fi
+  sleep 1
+done
+[ "${reached:-0}" = 1 ] || { echo "nginx not reachable through the pod port" >&2; exit 1; }
+echo "host -> pod port ${PORT} -> nginx: OK"
 
-# ── 6. Cleanup ───────────────────────────────────────────────────────────────
-if [ "$CLEANUP" = "true" ]; then
-  echo ""
-  echo "--- 6. Cleanup: stopping and removing pod ---"
-  podman pod stop "$POD_NAME"
-  podman pod rm   "$POD_NAME"
-  echo "Pod removed."
-fi
+for _ in $(seq 1 15); do
+  if podman logs "${POD}-sidecar" 2>&1 | grep -q "nginx reachable on localhost"; then
+    seen=1
+    break
+  fi
+  sleep 1
+done
+[ "${seen:-0}" = 1 ] || { echo "sidecar could not reach nginx over the shared localhost" >&2; exit 1; }
+echo "sidecar -> localhost:80 (shared network namespace): OK"
 
-echo ""
 echo "=== Done ==="

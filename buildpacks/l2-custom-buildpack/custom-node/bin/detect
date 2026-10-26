@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# L2: bin/detect decides whether this buildpack applies to the app source.
+#   exit 0    -> I apply (and the build plan I append to is used)
+#   exit 100  -> I do not apply, try the next buildpack
+#   other     -> detection error
+# Buildpack API 0.10 passes everything as CNB_* environment variables; the working
+# directory is the application source.
+set -euo pipefail
+
+if [[ ! -f package.json || ! -f package-lock.json ]]; then
+  exit 100
+fi
+
+# Ask the build plan for a `node` dependency at build time and launch time. Another
+# buildpack in the group (paketo-buildpacks/node-engine) provides it.
+cat >> "${CNB_BUILD_PLAN_PATH:?}" <<'TOML'
+[[requires]]
+name = "node"
+
+[requires.metadata]
+build = true
+launch = true
+TOML

@@ -1,0 +1,451 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Weekly: base images, Paketo builders and runner images move even when this repo does not.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PACK_VERSION: "0.40.10"
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: hadolint (every Dockerfile)
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: "./docker/*"
+          recursive: true
+          failure-threshold: warning
+
+      - name: shellcheck
+        run: |
+          mapfile -t scripts < <(git ls-files '*.sh' 'buildpacks/*/custom-node/bin/*')
+          printf '%s\n' "${scripts[@]}"
+          shellcheck --shell=bash "${scripts[@]}"
+
+      - name: yamllint
+        run: |
+          pip install --quiet yamllint==1.38.0
+          yamllint -c .yamllint.yml .github docker/l5-compose-advanced/docker-compose.yaml podman/l-max-podman-kube-play/nginx-pod-kubernetes-manifest.yaml
+
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+
+      - name: Compose file renders for every profile
+        run: docker compose -f docker/l5-compose-advanced/docker-compose.yaml --profile '*' config -q
+
+      - name: TOML and JSON are well formed
+        run: |
+          python3 - <<'PY'
+          import json, tomllib
+          for path in ("buildpacks/l2-custom-buildpack/custom-node/buildpack.toml",
+                       "buildpacks/l-max-builder-composition/custom-builder-descriptor.toml"):
+              with open(path, "rb") as f:
+                  tomllib.load(f)
+              print("ok", path)
+          with open("docker/l-max-docker-extensions/metadata.json") as f:
+              meta = json.load(f)
+          assert meta["ui"]["dashboard-tab"]["src"] == "index.html"
+          print("ok metadata.json")
+          PY
+
+      - name: Buildpack API and executable bits
+        run: |
+          grep -q '^api = "0.10"' buildpacks/l2-custom-buildpack/custom-node/buildpack.toml
+          test -x buildpacks/l2-custom-buildpack/custom-node/bin/detect
+          test -x buildpacks/l2-custom-buildpack/custom-node/bin/build
+
+  docker-build:
+    name: docker ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: l1-go, dir: docker/l1-basic-dockerfile/go-app, port: 8080 }
+          - { name: l1-node, dir: docker/l1-basic-dockerfile/node-app, port: 3000 }
+          - { name: l1-python, dir: docker/l1-basic-dockerfile/python-app, port: 5000 }
+          - { name: l2-go-scratch, dir: docker/l2-multi-stage-builds/go-scratch, port: 8080 }
+          - { name: l2-node, dir: docker/l2-multi-stage-builds/node-app, port: 3000 }
+          - { name: l2-python, dir: docker/l2-multi-stage-builds/python-app, port: 5000 }
+          - { name: l3-go-multiarch, dir: docker/l3-buildkit-advanced/go-multiarch, port: 8080 }
+          - { name: l3-node-secret-and-cache, dir: docker/l3-buildkit-advanced/node-secret-and-cache, port: 3000, secret_test: true }
+          - { name: l3-python-pip-cache, dir: docker/l3-buildkit-advanced/python-pip-cache, port: 5000 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build (context is the example directory only)
+        run: docker buildx build --load -t "ci/${{ matrix.name }}:ci" "${{ matrix.dir }}"
+
+      - name: Smoke test (starts, healthy, non-root)
+        run: .github/scripts/smoke.sh "ci/${{ matrix.name }}:ci" http "${{ matrix.port }}" /health
+
+      - name: Secret mount leaves nothing in the image
+        if: matrix.secret_test
+        run: |
+          marker="ci-leak-marker-$(date +%s)"
+          printf '; %s\n' "$marker" > "$RUNNER_TEMP/npmrc"
+
+          # Positive control: a Dockerfile that really copies the secret into a
+          # layer. The detection below must find the marker here, otherwise the
+          # negative check proves nothing.
+          docker buildx build --load -t ci/leaky:ci --secret "id=npmrc,src=$RUNNER_TEMP/npmrc" -f - . <<'DOCKERFILE'
+          FROM alpine:3.24.3
+          RUN --mount=type=secret,id=npmrc cp /run/secrets/npmrc /leaked
+          DOCKERFILE
+          docker run --rm --user 0 ci/leaky:ci grep -q "$marker" /leaked
+
+          # The real example, built with the same secret.
+          docker buildx build --load -t ci/secret-check:ci --secret "id=npmrc,src=$RUNNER_TEMP/npmrc" "${{ matrix.dir }}"
+          if docker run --rm --user 0 --entrypoint sh ci/secret-check:ci -c "grep -rqs '$marker' /root /app /usr/local /etc /tmp"; then
+            echo "secret found in the image filesystem" >&2
+            exit 1
+          fi
+          if docker history --no-trunc ci/secret-check:ci | grep -q "$marker"; then
+            echo "secret found in image history" >&2
+            exit 1
+          fi
+          docker run --rm --user 0 --entrypoint sh ci/secret-check:ci -c 'test ! -e /root/.npmrc'
+          echo "secret was available during the build and is absent from the image"
+
+  docker-l4-base-images:
+    name: docker l4-custom-base-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the base images
+        run: |
+          docker buildx build --load -t myorg/base-node:24 docker/l4-custom-base-images/base-node
+          docker buildx build --load -t myorg/base-python:3.14 docker/l4-custom-base-images/base-python
+
+      - name: Base images are hardened (non-root, no setuid files, UTC, read-only capable)
+        run: |
+          for image in myorg/base-node:24 myorg/base-python:3.14; do
+            uid=$(docker run --rm --read-only --tmpfs /tmp "$image" id -u)
+            echo "$image runs as uid $uid"
+            [ "$uid" = 10001 ]
+            suid=$(docker run --rm --user 0 "$image" find / -xdev -perm /6000 -type f)
+            [ -z "$suid" ] || { echo "setuid/setgid files remain in $image: $suid" >&2; exit 1; }
+            tz=$(docker run --rm "$image" date +%Z)
+            [ "$tz" = UTC ]
+          done
+          .github/scripts/smoke.sh myorg/base-node:24 run v24 -- node --version
+          .github/scripts/smoke.sh myorg/base-python:3.14 run 3.14 -- python --version
+
+      - name: Build an app on top of the base image
+        run: docker buildx build --load --build-arg BASE_IMAGE=myorg/base-node:24 -t ci/derived-node:ci docker/l4-custom-base-images/derived-node-app
+
+      - name: Smoke test the derived app (read-only root filesystem)
+        run: .github/scripts/smoke.sh ci/derived-node:ci http 3000 /health --read-only
+
+  docker-extension:
+    name: docker l-max-docker-extensions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the extension image
+        run: docker buildx build --load -t ci/extension:ci docker/l-max-docker-extensions
+
+      - name: Image carries the metadata, UI and labels Docker Desktop needs
+        run: |
+          docker inspect ci/extension:ci | jq -e '.[0].Config.Labels["com.docker.desktop.extension.api.version"] and .[0].Config.Labels["com.docker.desktop.extension.icon"]' >/dev/null
+          cid=$(docker create ci/extension:ci /unused)
+          docker cp "$cid:/metadata.json" "$RUNNER_TEMP/metadata.json"
+          docker cp "$cid:/ui/index.html" "$RUNNER_TEMP/index.html"
+          docker rm "$cid"
+          jq -e '.ui["dashboard-tab"].src == "index.html"' "$RUNNER_TEMP/metadata.json" >/dev/null
+          grep -q "Docker Desktop extension" "$RUNNER_TEMP/index.html"
+
+  docker-multiarch:
+    name: docker l3 multi-arch (amd64 + arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      registry:
+        image: registry:3.1.2
+        ports:
+          - 5000:5000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          # host networking lets the builder push to the registry service on localhost:5000
+          driver-opts: network=host
+
+      - name: Build and push both platforms to a local registry
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --tag localhost:5000/go-multiarch:ci \
+            --push \
+            docker/l3-buildkit-advanced/go-multiarch
+
+      - name: Manifest list has exactly the two platforms
+        run: |
+          docker buildx imagetools inspect localhost:5000/go-multiarch:ci
+          platforms=$(docker buildx imagetools inspect --raw localhost:5000/go-multiarch:ci \
+            | jq -r '[.manifests[] | select(.platform.architecture != "unknown") | "\(.platform.os)/\(.platform.architecture)"] | sort | join(",")')
+          echo "platforms: $platforms"
+          [ "$platforms" = "linux/amd64,linux/arm64" ]
+
+      - name: Each image holds a binary built for its own architecture
+        run: |
+          # ELF header byte 18 is e_machine: 0x3e = x86-64, 0xb7 = AArch64.
+          check() {
+            platform=$1 want=$2
+            docker pull --quiet --platform "$platform" localhost:5000/go-multiarch:ci >/dev/null
+            cid=$(docker create --platform "$platform" localhost:5000/go-multiarch:ci)
+            docker cp "$cid:/server" "$RUNNER_TEMP/server-${platform#linux/}"
+            docker rm "$cid" >/dev/null
+            machine=$(od -An -tx1 -j18 -N1 "$RUNNER_TEMP/server-${platform#linux/}" | tr -d ' ')
+            echo "$platform: e_machine=0x$machine"
+            [ "$machine" = "$want" ]
+          }
+          check linux/amd64 3e
+          check linux/arm64 b7
+
+      - name: Smoke test linux/amd64
+        run: .github/scripts/smoke.sh localhost:5000/go-multiarch:ci http 8080 /health --platform linux/amd64
+
+      - name: Smoke test linux/arm64 (emulated with QEMU)
+        run: .github/scripts/smoke.sh localhost:5000/go-multiarch:ci http 8080 /health --platform linux/arm64
+
+  compose:
+    name: docker l5 compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: docker/l5-compose-advanced
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: dev profile - app waits for a healthy database, config and secret are wired
+        run: |
+          docker compose --profile dev up --build --wait --wait-timeout 180
+          curl -fsS http://127.0.0.1:3000/health
+          curl -fsS http://127.0.0.1:3000/config | jq -e '.appName == "compose-example"'
+          curl -fsS http://127.0.0.1:3000/secret-check | jq -e '.mounted and .nonEmpty'
+          # the secret value itself is never exposed by the app
+          ! curl -fsS http://127.0.0.1:3000/secret-check | grep -q changeme
+          docker compose --profile dev down -v
+
+      - name: prod profile - two replicas on a port range, read-only root filesystem
+        run: |
+          docker compose --profile prod up --build --wait --wait-timeout 180
+          h0=$(curl -fsS http://127.0.0.1:3000/ | jq -r .hostname)
+          h1=$(curl -fsS http://127.0.0.1:3001/ | jq -r .hostname)
+          echo "replica hostnames: $h0 $h1"
+          [ "$h0" != "$h1" ]
+          ! docker compose --profile prod exec -T --index 1 app-prod sh -c 'touch /app/should-fail'
+          docker compose --profile prod down -v
+
+      - name: test profile - the test container runs and passes (including the database check)
+        run: |
+          docker compose --profile test run --build --rm test-runner
+          docker compose --profile test down -v
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose --profile '*' logs --no-color
+
+  podman-rootless:
+    name: podman rootless (l1, l2, build, l-max kube play)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prepare rootless Podman
+        run: |
+          podman --version
+          # Ubuntu can restrict unprivileged user namespaces through AppArmor.
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          grep "^$USER:" /etc/subuid /etc/subgid
+          podman info --format 'rootless={{.Host.Security.Rootless}} graphDriver={{.Store.GraphDriverName}}'
+
+      - name: l1 rootless containers
+        run: bash podman/l1-rootless-containers/podman-rootless-run-examples.sh
+
+      - name: l1 storage.conf override is accepted
+        run: |
+          driver=$(CONTAINERS_STORAGE_CONF="$PWD/podman/l1-rootless-containers/podman-storage-conf-user-override.conf" \
+            podman info --format '{{.Store.GraphDriverName}}')
+          echo "graph driver with the override: $driver"
+          [ "$driver" = overlay ]
+
+      - name: l2 pods
+        run: bash podman/l2-pods-multi-container/podman-pod-create-and-run-example.sh
+
+      - name: podman build + rootless run of the Dockerfile examples
+        run: |
+          podman build --format docker -t localhost/podman-node docker/l1-basic-dockerfile/node-app
+          ENGINE=podman .github/scripts/smoke.sh localhost/podman-node http 3000 /health
+          podman build --format docker -t localhost/podman-go-scratch docker/l2-multi-stage-builds/go-scratch
+          ENGINE=podman .github/scripts/smoke.sh localhost/podman-go-scratch http 8080 /health
+
+      - name: l-max kube play
+        run: bash podman/l-max-podman-kube-play/podman-kube-play-run-and-teardown.sh
+
+  podman-quadlet:
+    name: podman quadlet (l3, l4) under systemctl --user
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prepare a user systemd session
+        run: |
+          podman --version
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          sudo loginctl enable-linger "$USER"
+          sudo systemctl start "user@$(id -u).service"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
+
+      - name: User manager is reachable
+        run: systemctl --user show-environment
+
+      - name: l3 single-container unit
+        run: bash podman/l3-quadlet-single-container/quadlet-install-and-enable.sh
+
+      - name: l4 pod, network and volume units
+        run: bash podman/l4-quadlet-pod-multi-unit/quadlet-pod-install-and-check.sh
+
+  podman-6:
+    name: podman 6.1.4 (quadlet validation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate every Quadlet unit with the current Podman release
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" -w /repo quay.io/podman/stable:v6.1.4 bash -euo pipefail -c '
+            podman --version
+            for dir in podman/l3-quadlet-single-container podman/l4-quadlet-pod-multi-unit; do
+              echo "== $dir"
+              QUADLET_UNIT_DIRS="/repo/$dir" /usr/libexec/podman/quadlet -dryrun -user
+            done
+            podman kube play --help >/dev/null
+          '
+
+  buildah:
+    name: buildah (l1, l2, l3, l-max)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prepare rootless Buildah
+        run: |
+          buildah --version
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          grep "^$USER:" /etc/subuid /etc/subgid
+
+      - name: l1 buildah build and from/run/commit
+        run: |
+          bash buildah/l1-build-oci-images/buildah-build-and-from-run-commit-examples.sh
+          ENGINE=podman .github/scripts/smoke.sh localhost/buildah-l1-dockerfile http 3000 /health
+          ENGINE=podman .github/scripts/smoke.sh localhost/buildah-l1-imperative http 3000 /health
+
+      - name: l2 FROM scratch
+        run: |
+          bash buildah/l2-scratch-minimal-images/buildah-from-scratch-static-binary.sh
+          ENGINE=podman .github/scripts/smoke.sh localhost/buildah-l2-go-scratch http 8080 /health
+
+      - name: l3 multi-arch manifest
+        run: bash buildah/l3-multi-arch-builds/buildah-manifest-multi-arch-amd64-arm64.sh
+
+      - name: l-max shell-only build
+        run: |
+          bash buildah/l-max-buildah-scripts/buildah-pure-shell-no-dockerfile-build.sh
+          ENGINE=podman .github/scripts/smoke.sh localhost/buildah-lmax-python http 5000 /health
+
+  buildpacks:
+    name: buildpacks (l1, l2, l-max)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pack
+        uses: buildpacks/github-actions/setup-pack@324e5c43145b68f60bf74a269f5ba7b2969e03db # v6.2.1
+        with:
+          pack-version: ${{ env.PACK_VERSION }}
+
+      - name: l1 auto-detect build (Node, Python, Go)
+        run: |
+          pack --version
+          bash buildpacks/l1-auto-detect-build/pack-build-auto-detect-all-apps.sh
+          .github/scripts/smoke.sh node-paketo:latest http 3000 /health
+          .github/scripts/smoke.sh python-paketo:latest http 8000 /health
+          .github/scripts/smoke.sh go-paketo:latest http 8080 /health
+
+      - name: l2 custom buildpack
+        run: |
+          bash buildpacks/l2-custom-buildpack/pack-build-with-custom-buildpack.sh
+          .github/scripts/smoke.sh node-custom-buildpack:latest http 3000 /health
+
+      - name: l-max custom builder
+        run: |
+          bash buildpacks/l-max-builder-composition/pack-create-and-use-custom-builder.sh
+          .github/scripts/smoke.sh node-via-custom-builder:latest http 3000 /health
+          .github/scripts/smoke.sh python-via-custom-builder:latest http 8000 /health
+          .github/scripts/smoke.sh go-via-custom-builder:latest http 8080 /health

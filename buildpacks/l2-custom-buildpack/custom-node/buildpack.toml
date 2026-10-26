@@ -1,0 +1,14 @@
+# L2: buildpack.toml, required at the root of every buildpack.
+# `api` is the Buildpack API version this buildpack implements.
+api = "0.10"
+
+[buildpack]
+id = "myorg/custom-node"
+version = "0.2.0"
+name = "MyOrg Custom Node.js Buildpack"
+homepage = "https://github.com/docaohieu2808/containerization"
+
+# [[targets]] replaces the deprecated [[stacks]]: which OS/architecture this
+# buildpack can run on. Leave arch and distros out to accept any.
+[[targets]]
+os = "linux"

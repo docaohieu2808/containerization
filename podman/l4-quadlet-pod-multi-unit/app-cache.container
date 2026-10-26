@@ -1,0 +1,22 @@
+# L4: cache container in the same pod. Not published to the host; the web
+# container reaches it on 127.0.0.1:6379 through the shared network namespace.
+[Unit]
+Description=Demo stack: cache
+
+[Container]
+ContainerName=app-cache
+Pod=app.pod
+Image=docker.io/library/redis:8.8.3-alpine3.23
+AutoUpdate=registry
+Exec=redis-server --appendonly yes --bind 127.0.0.1 --protected-mode yes
+# The volume unit is created first and mounted at the redis data directory.
+Volume=app-data.volume:/data
+DropCapability=ALL
+NoNewPrivileges=true
+HealthCmd=redis-cli -h 127.0.0.1 ping
+HealthInterval=30s
+HealthStartPeriod=5s
+
+[Service]
+Restart=always
+TimeoutStartSec=300

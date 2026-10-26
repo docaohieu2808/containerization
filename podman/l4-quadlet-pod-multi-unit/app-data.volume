@@ -1,0 +1,5 @@
+# L4: Quadlet volume. Generates app-data-volume.service, which creates the named
+# volume before any container that mounts app-data.volume.
+[Volume]
+VolumeName=app-data
+Label=app=demo-stack

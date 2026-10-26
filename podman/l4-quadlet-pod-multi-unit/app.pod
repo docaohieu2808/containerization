@@ -1,0 +1,11 @@
+# L4: Quadlet pod. Generates app-pod.service. Containers that say Pod=app.pod
+# join it and share one network namespace (one localhost), exactly like the
+# containers of a Kubernetes Pod. Only ports published HERE are reachable from
+# the host, so the cache is not exposed.
+[Pod]
+PodName=app
+Network=app-net.network
+PublishPort=127.0.0.1:18084:8080
+
+[Install]
+WantedBy=default.target

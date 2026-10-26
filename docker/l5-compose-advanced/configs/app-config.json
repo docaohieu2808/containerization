@@ -1,8 +1,6 @@
 {
-  "logLevel": "info",
-  "maxConnections": 100,
+  "appName": "compose-example",
   "featureFlags": {
-    "newDashboard": false,
-    "betaApi": false
+    "newDashboard": false
   }
 }

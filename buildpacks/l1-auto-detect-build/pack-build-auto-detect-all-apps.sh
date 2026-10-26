@@ -1,69 +1,44 @@
 #!/usr/bin/env bash
-# L1: Buildpacks — pack build with Paketo buildpacks (auto-detect language)
-# Demonstrates:
-#   - pack build: detect language automatically, build OCI image, no Dockerfile needed
-#   - Paketo builder: includes buildpacks for Node, Python, Go, Java, Ruby, etc.
-#   - pack inspect: show what buildpacks were applied
-#   - pack sbom: software bill of materials
+# L1: Cloud Native Buildpacks. `pack build` inspects the source, picks the
+# matching buildpacks (Node, Python, Go...), and produces an OCI image with no
+# Dockerfile. The builder is pinned to an exact version for reproducible builds.
 #
-# Prerequisites: pack CLI installed (https://buildpacks.io/docs/tools/pack/)
-#   Ubuntu: curl -sSL https://github.com/buildpacks/pack/releases/download/v0.36.4/pack-v0.36.4-linux.tgz | tar xz && sudo mv pack /usr/local/bin/
+# Prerequisites: Docker (or a Docker-compatible daemon) and the pack CLI
+#   https://buildpacks.io/docs/tools/pack/   (this repo is tested with pack v0.40.10)
 #
 # Run: bash pack-build-auto-detect-all-apps.sh
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+APPS="$SCRIPT_DIR/../../docker/l1-basic-dockerfile"
 
-# Paketo full builder — supports most languages
-BUILDER="paketobuildpacks/builder-jammy-base"
+# Paketo builder on Ubuntu 24.04 (noble), with the Node, Python and Go buildpacks inside.
+# Releases: https://github.com/paketo-buildpacks/ubuntu-noble-builder/releases
+BUILDER=docker.io/paketobuildpacks/ubuntu-noble-builder:0.0.207
 
-echo "=== L1: pack build — Auto-detect language, no Dockerfile ==="
-echo "Builder: $BUILDER"
+echo "=== L1: pack build, language auto-detected ==="
+echo "builder: $BUILDER"
 
-# ── Build Node.js app ─────────────────────────────────────────────────────────
-echo ""
-echo "--- Building Node.js app ---"
-# pack detects package.json → applies Node.js buildpack automatically
-pack build node-paketo:latest \
-  --path "$REPO_ROOT/test-apps/node-app" \
-  --builder "$BUILDER" \
-  --env "NODE_ENV=production"
+echo
+echo "--- Node.js (detected from package.json + package-lock.json) ---"
+pack build node-paketo:latest --path "$APPS/node-app" --builder "$BUILDER" --trust-builder
 
-echo "Node image built: node-paketo:latest"
+echo
+echo "--- Python (detected from requirements.txt; start command from the Procfile) ---"
+pack build python-paketo:latest --path "$APPS/python-app" --builder "$BUILDER" --trust-builder
 
-# ── Build Python app ──────────────────────────────────────────────────────────
-echo ""
-echo "--- Building Python app ---"
-# pack detects flask-app-pip-requirements.txt → applies Python buildpack
-# Note: Paketo Python buildpack looks for requirements.txt by default
-# We pass the custom filename via env var
-pack build python-paketo:latest \
-  --path "$REPO_ROOT/test-apps/python-app" \
-  --builder "$BUILDER" \
-  --env "BP_PIP_REQUIREMENTS=flask-app-pip-requirements.txt"
+echo
+echo "--- Go (detected from go.mod) ---"
+pack build go-paketo:latest --path "$APPS/go-app" --builder "$BUILDER" --trust-builder
 
-echo "Python image built: python-paketo:latest"
-
-# ── Build Go app ──────────────────────────────────────────────────────────────
-echo ""
-echo "--- Building Go app ---"
-# pack detects go.mod → applies Go buildpack automatically
-pack build go-paketo:latest \
-  --path "$REPO_ROOT/test-apps/go-app" \
-  --builder "$BUILDER"
-
-echo "Go image built: go-paketo:latest"
-
-# ── Inspect what buildpacks were applied ─────────────────────────────────────
-echo ""
-echo "--- Inspecting node-paketo:latest (which buildpacks ran?) ---"
+echo
+echo "--- Which buildpacks produced node-paketo? ---"
 pack inspect node-paketo:latest
 
-echo ""
-echo "--- All built images ---"
-docker images | grep -E "node-paketo|python-paketo|go-paketo" || true
+echo
+echo "--- Software bill of materials ---"
+sbom_dir=$(mktemp -d)
+pack sbom download node-paketo:latest --output-dir "$sbom_dir"
+find "$sbom_dir" -type f | head -5
 
-echo ""
-echo "=== Done. Images built with zero Dockerfile — Paketo auto-detected language ==="
+echo "=== Done. Images built with no Dockerfile ==="

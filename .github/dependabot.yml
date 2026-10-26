@@ -1,0 +1,110 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l-max-docker-extensions
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l1-basic-dockerfile/go-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l1-basic-dockerfile/node-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l1-basic-dockerfile/python-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l2-multi-stage-builds/go-scratch
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l2-multi-stage-builds/node-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l2-multi-stage-builds/python-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l3-buildkit-advanced/go-multiarch
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l3-buildkit-advanced/node-secret-and-cache
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l3-buildkit-advanced/python-pip-cache
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l4-custom-base-images/base-node
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l4-custom-base-images/base-python
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l4-custom-base-images/derived-node-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /docker/l5-compose-advanced/app
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker-compose
+    directory: /docker/l5-compose-advanced
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /docker/l1-basic-dockerfile/node-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /docker/l2-multi-stage-builds/node-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /docker/l3-buildkit-advanced/node-secret-and-cache
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /docker/l4-custom-base-images/derived-node-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /docker/l5-compose-advanced/app
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /docker/l1-basic-dockerfile/python-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /docker/l2-multi-stage-builds/python-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /docker/l3-buildkit-advanced/python-pip-cache
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /docker/l1-basic-dockerfile/go-app
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /docker/l2-multi-stage-builds/go-scratch
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /docker/l3-buildkit-advanced/go-multiarch
+    schedule:
+      interval: weekly

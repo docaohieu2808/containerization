@@ -1,0 +1,109 @@
+# L5: advanced Docker Compose.
+# Teaches: profiles (dev / test / prod), depends_on with service_healthy,
+# healthchecks, file-based secrets, configs, resource limits, a read-only prod
+# container, and replicas published on a host port range.
+#
+#   dev:   docker compose --profile dev  up --build --wait
+#   prod:  docker compose --profile prod up --build --wait     (2 replicas, ports 3000-3001)
+#   test:  docker compose --profile test run --build --rm test-runner
+#
+# The default secret is the committed placeholder. Point DB_PASSWORD_FILE at your
+# own file (kept out of git) for anything real:
+#   DB_PASSWORD_FILE=./secrets/db-password.txt docker compose --profile prod up
+
+name: containerization-l5
+
+services:
+  db:
+    image: postgres:18.6-alpine3.24
+    profiles: [dev, test, prod]
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_DB: appdb
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      # PostgreSQL 18+ images keep the version-specific data dir under /var/lib/postgresql.
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d appdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+
+  app-dev:
+    build:
+      context: ./app
+      target: runtime
+    profiles: [dev]
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: "3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    configs:
+      - source: app_config
+        target: /app/config.json
+    secrets:
+      - db_password
+
+  app-prod:
+    build:
+      context: ./app
+      target: runtime
+    profiles: [prod]
+    # A host port can only be bound once, so each replica gets its own: 3000, 3001.
+    # Put a reverse proxy in front of this for real traffic.
+    ports:
+      - "3000-3001:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    read_only: true
+    restart: on-failure:3
+    depends_on:
+      db:
+        condition: service_healthy
+    configs:
+      - source: app_config
+        target: /app/config.json
+    secrets:
+      - db_password
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  test-runner:
+    build:
+      context: ./app
+      target: test
+    profiles: [test]
+    environment:
+      DB_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:
+
+secrets:
+  db_password:
+    file: ${DB_PASSWORD_FILE:-./secrets/db-password-example.txt}
+
+configs:
+  app_config:
+    file: ./configs/app-config.json

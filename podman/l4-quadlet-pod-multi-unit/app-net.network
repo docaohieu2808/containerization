@@ -1,0 +1,5 @@
+# L4: Quadlet network. Generates app-net-network.service, started automatically
+# before any unit that references app-net.network.
+[Network]
+NetworkName=app-net
+Label=app=demo-stack

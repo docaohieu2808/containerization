@@ -1,54 +1,52 @@
-# MAX: Custom builder — builder.toml
-# A builder packages: a set of buildpacks + a stack (run image + build image)
-# This lets teams publish a single builder image usable across all projects
+# L-max: builder.toml. A builder is an image that bundles everything `pack build`
+# needs: a pinned lifecycle, the buildpacks, their detection order, and the build
+# and run images. Publishing one builder gives every team the same reproducible
+# toolchain.
 #
-# Build the builder image:
-#   pack builder create myorg/custom-builder:latest --config custom-builder-descriptor.toml
-#
-# Use the builder:
-#   pack build myapp --builder myorg/custom-builder:latest
+# Create: pack builder create myorg/custom-builder:latest --config custom-builder-descriptor.toml
+# Use:    pack build myapp --builder myorg/custom-builder:latest
 
-[builder]
-  description = "MyOrg custom builder — Node.js + Python + Go on Ubuntu Jammy"
+description = "MyOrg builder: Node.js, Python and Go on Ubuntu 24.04"
 
-# ── Stack: defines the build image and run image ──────────────────────────────
-# Build image: has compilers, build tools
-# Run image:   minimal, only what's needed at runtime
-[stack]
-  id          = "io.buildpacks.stacks.jammy"
-  build-image = "paketobuildpacks/build-jammy-base"
-  run-image   = "paketobuildpacks/run-jammy-base"
-
-# ── Buildpacks included in this builder ───────────────────────────────────────
-# Order matters: each group is tried in sequence; first detect=0 group wins
+# Buildpacks included in the builder. Composite Paketo buildpacks pull in the
+# buildpacks they depend on. Releases: https://github.com/paketo-buildpacks
+[[buildpacks]]
+uri = "docker://gcr.io/paketo-buildpacks/nodejs:10.14.1"
 
 [[buildpacks]]
-  uri     = "docker://gcr.io/paketo-buildpacks/nodejs"
-  version = "latest"
+uri = "docker://gcr.io/paketo-buildpacks/python:2.66.0"
 
 [[buildpacks]]
-  uri     = "docker://gcr.io/paketo-buildpacks/python"
-  version = "latest"
+uri = "docker://gcr.io/paketo-buildpacks/go:4.23.1"
 
-[[buildpacks]]
-  uri     = "docker://gcr.io/paketo-buildpacks/go"
-  version = "latest"
-
-# ── Order groups: detection order ────────────────────────────────────────────
-# Group 1: try Node.js first
+# Detection order: the first group whose buildpacks all detect wins. (A version
+# is only needed if the builder holds several versions of the same buildpack;
+# "latest" is not a valid version.)
 [[order]]
-  [[order.group]]
-    id      = "paketo-buildpacks/nodejs"
-    version = "latest"
+[[order.group]]
+id = "paketo-buildpacks/nodejs"
 
-# Group 2: try Python
 [[order]]
-  [[order.group]]
-    id      = "paketo-buildpacks/python"
-    version = "latest"
+[[order.group]]
+id = "paketo-buildpacks/python"
 
-# Group 3: try Go
 [[order]]
-  [[order.group]]
-    id      = "paketo-buildpacks/go"
-    version = "latest"
+[[order.group]]
+id = "paketo-buildpacks/go"
+
+# Pinned lifecycle: https://github.com/buildpacks/lifecycle/releases
+[lifecycle]
+version = "0.21.26"
+
+# Build image: has compilers and build tools. Run image: minimal, what ships.
+[build]
+image = "docker.io/paketobuildpacks/ubuntu-noble-build:0.0.152"
+
+[run]
+[[run.images]]
+image = "docker.io/paketobuildpacks/ubuntu-noble-run:0.0.152"
+
+# [[targets]] replaces the deprecated [stack] table.
+[[targets]]
+os = "linux"
+arch = "amd64"
