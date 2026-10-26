@@ -7,7 +7,7 @@
 # Build: docker build -t myorg/base-node:24 .   (context = this directory)
 # Use:   FROM myorg/base-node:24                (see ../derived-node-app)
 # Run it read-only for extra hardening: docker run --read-only --tmpfs /tmp ...
-FROM node:24.22.1-alpine3.24
+FROM node:26.12.1-alpine3.24
 
 ENV TZ=UTC \
     NPM_CONFIG_UPDATE_NOTIFIER=false
