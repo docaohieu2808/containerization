@@ -9,7 +9,7 @@
 #
 # Single platform: docker buildx build -t go-multiarch --load .
 # Multi-platform:  docker buildx build --platform linux/amd64,linux/arm64 -t REGISTRY/go-multiarch --push .
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine3.24 AS build
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
