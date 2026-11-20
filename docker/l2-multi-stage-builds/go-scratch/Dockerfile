@@ -6,7 +6,7 @@
 #
 # Build: docker build -t go-scratch .        (context = this directory)
 # Run:   docker run --rm -p 8080:8080 go-scratch
-FROM golang:1.27.3-alpine3.24 AS build
+FROM golang:1.27.4-alpine3.24 AS build
 WORKDIR /src
 
 COPY go.mod ./
