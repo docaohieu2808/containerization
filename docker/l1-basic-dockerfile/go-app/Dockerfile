@@ -5,7 +5,7 @@
 #
 # Build: docker build -t go-basic .          (context = this directory)
 # Run:   docker run --rm -p 8080:8080 go-basic
-FROM golang:1.27.3-alpine3.24
+FROM golang:1.27.4-alpine3.24
 
 WORKDIR /app
 
